@@ -38,9 +38,23 @@ services:
     volumes:
       - ./data/raw:/data/raw:ro
     depends_on:
-      db:
-        condition: service_healthy
       extract:
+        condition: service_completed_successfully
+
+  app:
+    build: ./app
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_HOST: db
+      DB_PORT: "5432"
+    ports:
+      - "8501:8501"
+    depends_on:
+      load-transform:
         condition: service_completed_successfully
 
 volumes:
