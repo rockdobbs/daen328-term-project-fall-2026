@@ -17,6 +17,8 @@ services:
 
   extract-load:
     build: ./extract-load
+    env_file:
+      - ./.env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -24,7 +26,7 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
     volumes:
-      - ./data:/data:ro
+      - ./data/raw:/data/raw:rw
     depends_on:
       db:
         condition: service_healthy
