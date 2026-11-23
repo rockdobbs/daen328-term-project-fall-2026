@@ -1,5 +1,0 @@
-requests
-pandas
-pytest
-psycopg2-binary
-python-dotenv
