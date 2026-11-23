@@ -15,8 +15,18 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
 
-  extract-load:
-    build: ./extract-load
+  extract:
+    build: ./extract
+    env_file:
+      - ./.env
+    volumes:
+      - ./data/raw:/data/raw:rw
+    depends_on:
+      db:
+        condition: service_healthy
+
+  load-transform:
+    build: ./load-transform
     env_file:
       - ./.env
     environment:
@@ -26,10 +36,12 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
     volumes:
-      - ./data/raw:/data/raw:rw
+      - ./data/raw:/data/raw:ro
     depends_on:
       db:
         condition: service_healthy
+      extract:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:
