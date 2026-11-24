@@ -1,6 +1,9 @@
 # Virtual Environment
 .venv/
 
+# Pulled Data
+/data/*
+
 # Secrets
 .env
 
@@ -9,3 +12,5 @@ __pycache__/
 
 # pytest cache
 .pytest_cache/
+
+.DS_store
