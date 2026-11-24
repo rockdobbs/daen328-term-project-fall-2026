@@ -23,7 +23,11 @@ def parse_dates(df: pd.DataFrame, date_cols: list[str]) -> pd.DataFrame:
     df_clean = df.copy()
     for col in date_cols:
         if col in df_clean.columns:
-            df_clean[col] = pd.to_datetime(df_clean[col], errors="coerce")
+            # Keep Austin's wall time for PostgreSQL TIMESTAMP columns.
+            local_time = df_clean[col].astype("string").str.replace(
+                r"(?:Z|[+-]\d{2}:?\d{2})$", "", regex=True
+            )
+            df_clean[col] = pd.to_datetime(local_time, format="ISO8601", errors="coerce")
     return df_clean
 
 
@@ -108,6 +112,8 @@ def run_transform(raw_path: str | Path) -> tuple[pd.DataFrame, dict]:
     """Orchestrate all cleaning functions and collect data quality metrics."""
     df = load_raw_data(raw_path)
     stats = {"raw_rows": len(df)}
+    if "outcome_date" not in df.columns and "datetime" in df.columns:
+        df["outcome_date"] = df["datetime"]
 
     df, dupes_removed = remove_duplicates(df, subset_col="id")
     stats["duplicates_removed"] = dupes_removed
@@ -118,6 +124,21 @@ def run_transform(raw_path: str | Path) -> tuple[pd.DataFrame, dict]:
     df = parse_dates(df, date_cols=["outcome_date", "date_of_birth"])
     df = parse_age_to_days(df, age_col="age_upon_outcome")
     df, fill_counts = handle_missing_values(df)
+
+    # Map the archive fields to the names used by the existing loader.
+    for target, source in {
+        "type": "animal_type",
+        "sex": "sex_upon_outcome",
+        "primary_breed": "breed",
+        "primary_color": "color",
+        "outcome_status": "outcome_type",
+    }.items():
+        if target not in df.columns and source in df.columns:
+            df[target] = df[source]
+
+    for col in ("type", "outcome_status"):
+        values = df.reindex(columns=[col])[col].astype("string").str.strip()
+        df[col] = values.replace("", pd.NA).fillna("Unknown")
 
     stats["clean_rows"] = len(df)
     stats["missing_filled"] = fill_counts

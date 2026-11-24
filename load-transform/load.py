@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS animals (
 );
 
 CREATE TABLE IF NOT EXISTS outcomes (
-    outcome_id         INTEGER PRIMARY KEY,
+    outcome_id         TEXT PRIMARY KEY,
     animal_id          VARCHAR(20) NOT NULL REFERENCES animals (animal_id),
     outcome_date       TIMESTAMP   NOT NULL,
     intake_date        TIMESTAMP,
@@ -96,6 +96,17 @@ def create_tables(conn) -> None:
     """Create the tables if they don't exist yet. Safe to run every time."""
     with conn.cursor() as cur:
         cur.execute(CREATE_TABLES_SQL)
+        cur.execute(
+            """
+            SELECT atttypid = 'text'::regtype
+            FROM pg_attribute
+            WHERE attrelid = 'outcomes'::regclass AND attname = 'outcome_id'
+            """
+        )
+        if not cur.fetchone()[0]:
+            cur.execute(
+                "ALTER TABLE outcomes ALTER COLUMN outcome_id TYPE TEXT USING outcome_id::text"
+            )
     conn.commit()
 
 
@@ -120,7 +131,7 @@ def build_animals_table(df: pd.DataFrame) -> pd.DataFrame:
 def build_outcomes_table(df: pd.DataFrame) -> pd.DataFrame:
     """One row per outcome event, with types matching the outcomes table."""
     outcomes = df.reindex(columns=list(OUTCOME_COLUMNS)).rename(columns=OUTCOME_COLUMNS)
-    outcomes["outcome_id"] = pd.to_numeric(outcomes["outcome_id"], errors="coerce").astype("Int64")
+    outcomes["outcome_id"] = outcomes["outcome_id"].astype("string")
     outcomes["days_in_shelter"] = pd.to_numeric(outcomes["days_in_shelter"], errors="coerce").astype("Int64")
     for col in ["outcome_date", "intake_date", "source_timestamp"]:
         outcomes[col] = pd.to_datetime(outcomes[col], errors="coerce")
