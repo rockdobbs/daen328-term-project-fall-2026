@@ -2,6 +2,10 @@
 
 import os
 from datetime import timedelta
+import json
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import numpy as np
 import pandas as pd
@@ -17,6 +21,8 @@ except ImportError:
     load_dotenv = None  # Compose can supply the environment directly.
 
 SOURCE_NAME = "austin_animal_outcomes"
+INTAKES_API_URL = "https://data.austintexas.gov/resource/wter-evkm.json"
+INTAKES_PAGE_SIZE = 50_000
 DB_SETTINGS = (
     "POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD"
 )
@@ -121,7 +127,98 @@ def get_events(animal_types, statuses, start_date, end_date, last_run_at):
         "end_exclusive": end_date + timedelta(days=1),
     }
     with get_engine().connect() as conn:
-        return pd.read_sql_query(EVENTS_SQL, conn, params=params, parse_dates=["outcome_date"])
+        return pd.read_sql_query(
+            EVENTS_SQL, conn, params=params, parse_dates=["outcome_date", "intake_date"]
+        )
+
+
+@st.cache_data(ttl=3600, max_entries=1, show_spinner="Matching outcomes to animal intakes…")
+def get_historical_intakes():
+    """Download the two intake fields needed to reconstruct shelter stays."""
+    pages = []
+    offset = 0
+    while True:
+        query = urlencode({
+            "$select": "animal_id,datetime",
+            "$where": "animal_id is not null AND datetime is not null",
+            "$order": "datetime,animal_id",
+            "$limit": INTAKES_PAGE_SIZE,
+            "$offset": offset,
+        })
+        request = Request(
+            f"{INTAKES_API_URL}?{query}",
+            headers={"Accept": "application/json", "User-Agent": "AustinAnimalDashboard/1.0"},
+        )
+        with urlopen(request, timeout=45) as response:
+            records = json.load(response)
+        if not records:
+            break
+        pages.append(pd.DataFrame.from_records(records))
+        if len(records) < INTAKES_PAGE_SIZE:
+            break
+        offset += INTAKES_PAGE_SIZE
+
+    if not pages:
+        return pd.DataFrame(columns=["animal_id", "matched_intake_date"])
+    intakes = pd.concat(pages, ignore_index=True).rename(
+        columns={"datetime": "matched_intake_date"}
+    )
+    intakes["animal_id"] = intakes["animal_id"].astype("string").str.strip().str.upper()
+    intakes["matched_intake_date"] = pd.to_datetime(
+        intakes["matched_intake_date"], errors="coerce"
+    )
+    return (
+        intakes.dropna(subset=["animal_id", "matched_intake_date"])
+        .drop_duplicates(["animal_id", "matched_intake_date"])
+        .sort_values(["matched_intake_date", "animal_id"])
+        .reset_index(drop=True)
+    )
+
+
+def impute_shelter_stays(events, intakes):
+    """Fill missing stays using the latest intake for that animal before its outcome."""
+    data = events.copy()
+    data["intake_date"] = pd.to_datetime(data["intake_date"], errors="coerce")
+    recorded_stay = pd.to_numeric(data["days_in_shelter"], errors="coerce")
+    data["days_in_shelter"] = recorded_stay.where(recorded_stay.ge(0))
+    data["stay_imputed"] = False
+
+    if data.empty or intakes.empty:
+        return data
+
+    left = data.reset_index(names="event_row")
+    left["match_animal_id"] = left["animal_id"].astype("string").str.strip().str.upper()
+    left = left.dropna(subset=["match_animal_id", "outcome_date"]).sort_values(
+        ["outcome_date", "match_animal_id"]
+    )
+    right = intakes.rename(columns={"animal_id": "match_animal_id"}).sort_values(
+        ["matched_intake_date", "match_animal_id"]
+    )
+    matched = pd.merge_asof(
+        left,
+        right,
+        left_on="outcome_date",
+        right_on="matched_intake_date",
+        by="match_animal_id",
+        direction="backward",
+        allow_exact_matches=True,
+    ).set_index("event_row")
+
+    matched_intake = matched["matched_intake_date"].reindex(data.index)
+    missing_intake = data["intake_date"].isna() & matched_intake.notna()
+    data.loc[missing_intake, "intake_date"] = matched_intake.loc[missing_intake]
+
+    calculated_stay = (
+        data["outcome_date"].dt.normalize() - matched_intake.dt.normalize()
+    ).dt.days
+    can_impute = (
+        data["days_in_shelter"].isna()
+        & matched_intake.notna()
+        & calculated_stay.ge(0)
+    )
+    data.loc[can_impute, "days_in_shelter"] = calculated_stay.loc[can_impute]
+    data.loc[can_impute, "stay_imputed"] = True
+    return data
 
 
 def analysis_fields(events):
@@ -203,7 +300,16 @@ def overview(data, months):
         help="Mean age on the outcome date, across exits with a usable birth date.",
     )
     median = data["stay"].median() if data["stay"].notna().any() else np.nan
-    metrics[3].metric("Median days in shelter", "N/A" if pd.isna(median) else f"{median:,.1f}", border=True)
+    imputed_count = int(data.get("stay_imputed", pd.Series(False, index=data.index)).sum())
+    metrics[3].metric(
+        "Median days in shelter",
+        "N/A" if pd.isna(median) else f"{median:,.1f}",
+        border=True,
+        help=(
+            "Missing stays are calculated from the most recent matching intake before the outcome. "
+            f"{imputed_count:,} displayed stays were imputed from the Austin intake dataset."
+        ),
+    )
     if data.empty:
         st.info("No outcomes match these filters.")
         return
@@ -547,6 +653,20 @@ def main():
     start_date, end_date = dates
     # Fetch the full denominator once. The overview and age views apply the status filter locally.
     events = get_events(selected_types, statuses, start_date, end_date, last_run_at)
+    needs_intake_match = (
+        pd.to_numeric(events["days_in_shelter"], errors="coerce").isna()
+        | pd.to_datetime(events["intake_date"], errors="coerce").isna()
+    ).any()
+    intakes = pd.DataFrame(columns=["animal_id", "matched_intake_date"])
+    if needs_intake_match:
+        try:
+            intakes = get_historical_intakes()
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+            st.warning(
+                "The historical intake feed could not be reached, so this view is using only "
+                "shelter stays already stored in the outcomes database."
+            )
+    events = impute_shelter_stays(events, intakes)
     show_results(analysis_fields(events), selected_statuses, start_date, end_date)
 
 
