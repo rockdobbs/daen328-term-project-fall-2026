@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY extract.py .
 COPY transform.py .
 COPY load.py .
+COPY tests/ tests/
+COPY pytest.ini .
 
 # What the container runs when it starts
 CMD ["sh", "-c", "python extract.py && python load.py"]

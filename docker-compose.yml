@@ -25,6 +25,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DB_HOST: db
       DB_PORT: "5432"
+    volumes:
+      - ./data/raw:/data/raw:rw
     depends_on:
       db:
         condition: service_healthy
