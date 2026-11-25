@@ -13,7 +13,7 @@ skipped, so the summary only counts real inserts and updates.
 import os
 from datetime import datetime
 from pathlib import Path
-
+from pprint import pprint
 import pandas as pd
 import psycopg2
 from dotenv import load_dotenv
@@ -228,6 +228,35 @@ if __name__ == "__main__":
     from transform import run_transform
 
     raw_file = Path(__file__).resolve().parent.parent / "data" / "raw" / "outcomes.json"
-    cleaned_df, _ = run_transform(raw_file)
-    print("Load summary:")
+    cleaned_df, quality_stats = run_transform(raw_file)
+    print("Data quality summary:")
+    print(
+    f"after cleaning: {quality_stats['clean_rows']:,} rows, "
+    f"{quality_stats['duplicates_removed']:,} duplicates removed",
+        flush=True,
+    )
+
+    fill_rules = {
+        "name": "Unnamed",
+        "outcome_subtype": "None",
+        "sex_upon_outcome": "Unknown",
+        "breed": "Unknown",
+        "color": "Unknown",
+    }
+
+    missing_parts = []
+
+    for column, count in quality_stats["missing_before_cleaning"].items():
+        filled = quality_stats["missing_filled"].get(column, 0)
+
+        if filled:
+            replacement = fill_rules[column]
+            missing_parts.append(
+                f'{column} {count:,}, {filled:,} filled with "{replacement}"'
+            )
+        else:
+            missing_parts.append(f"{column} {count:,}")
+
+    print(f"missing values:\n{" "*16}" +  f",\n{" "*16}".join(missing_parts))
+
     run_load(cleaned_df)

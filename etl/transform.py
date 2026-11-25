@@ -112,6 +112,13 @@ def run_transform(raw_path: str | Path) -> tuple[pd.DataFrame, dict]:
     """Orchestrate all cleaning functions and collect data quality metrics."""
     df = load_raw_data(raw_path)
     stats = {"raw_rows": len(df)}
+    stats["missing_before_cleaning"] = (
+      df.replace(r"^\s*$", pd.NA, regex=True)
+      .isna()
+      .sum()
+      .astype(int)
+      .to_dict()
+    )
     if "outcome_date" not in df.columns and "datetime" in df.columns:
         df["outcome_date"] = df["datetime"]
 
@@ -142,6 +149,14 @@ def run_transform(raw_path: str | Path) -> tuple[pd.DataFrame, dict]:
 
     stats["clean_rows"] = len(df)
     stats["missing_filled"] = fill_counts
+
+    stats["missing_after_cleaning"] = (
+        df.replace(r"^\s*$", pd.NA, regex=True)
+        .isna()
+        .sum()
+        .astype(int)
+        .to_dict()
+    )
 
     return df, stats
 
