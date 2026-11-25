@@ -1,7 +1,7 @@
 import argparse
 import json
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -159,10 +159,17 @@ def main():
     write_json(output, records)
     write_json(FOLDER / "sample.json", records[:5])
 
-    print("New records:", added)
-    print("Changed records:", changed)
-    print("Total saved:", len(records))
-    print("Finished.")
+    mode = (
+        f"incremental since {start.isoformat()}"
+        if latest is not None
+        else "full download"
+    )
+
+    print(f"\nETL run {datetime.now():%Y-%m-%d %H:%M}", flush=True)
+    print(
+        f"received from API: {len(downloaded):,} rows ({mode})",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
