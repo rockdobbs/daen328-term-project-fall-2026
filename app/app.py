@@ -371,7 +371,7 @@ def overview(data, months):
             fig.update_xaxes(title="Days in shelter", rangemode="tozero")
             draw(fig, "stay_types", grid="x")
     with right:
-        st.subheader("Top 10 breeds by outcome events")
+        st.subheader("Top 10 breeds by number of outcome events")
         counts = data["breed"].value_counts().head(10)
         if counts.empty:
             st.info("No primary breeds were recorded for this selection.")
