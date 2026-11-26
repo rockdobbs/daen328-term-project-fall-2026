@@ -3,7 +3,7 @@
 
 ## Overview
 
-This repository is a complete ETL data pipeline, from extraction to data visualization in a streamlit dashboard. The data source is the [Austin Animal Center Outcomes (10/01/2013 to 05/05/2025)](https://data.austintexas.gov/Health-and-Community-Services/Austin-Animal-Center-Outcomes-10-01-2013-to-05-05-/9t4d-g238/about_data) consisting of ~174k rows and 12 columns.
+This repository is a complete ETL data pipeline, from extraction to data visualization in a Streamlit dashboard. The data source is the [Austin Animal Center Outcomes (10/01/2013 to 05/05/2025)](https://data.austintexas.gov/Health-and-Community-Services/Austin-Animal-Center-Outcomes-10-01-2013-to-05-05-/9t4d-g238/about_data) consisting of ~174k rows and 12 columns. The dataset covers information about animals at the time an outcome event occurs.
 
 *Note: The app uses a second, sister dataset: [Austin Animal Center Intakes (10/01/2013 to 05/05/2025)](https://data.austintexas.gov/Health-and-Community-Services/Austin-Animal-Center-Intakes-10-01-2013-to-05-05-2/wter-evkm/about_data) to create more insightful analytics in the dashboard*
 
